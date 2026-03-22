@@ -1,0 +1,86 @@
+name: trading-system
+
+# ---------------------------------------------------------------------------
+# Shared environment variables injected into every service that uses the
+# anchor.  Override via a .env file or shell environment before running.
+# ---------------------------------------------------------------------------
+x-trading-env: &trading-env
+  DATABASE_URL: "postgresql+asyncpg://trader:postgres@db:5432/trading"
+  REDIS_URL: "redis://redis:6379/0"
+  TRADING_MODE: "paper"
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+
+services:
+  # -------------------------------------------------------------------------
+  # Trading bot
+  # -------------------------------------------------------------------------
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      <<: *trading-env
+    volumes:
+      # Mount config read-only so operators can adjust settings without
+      # rebuilding the image.
+      - ../config:/app/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Verify Redis connectivity from inside the bot container.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import redis; r=redis.from_url('redis://redis:6379/0'); r.ping()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL — persistent order and ledger storage
+  # -------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: trading
+      POSTGRES_USER: trader
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trader -d trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      # Expose to localhost for direct inspection; bind to 127.0.0.1 in
+      # production to avoid unintentional external exposure.
+      - "5432:5432"
+
+  # -------------------------------------------------------------------------
+  # Redis — feature store, kill-switch state, and idempotency keys
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    # Enable AOF persistence so state survives container restarts.
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  redisdata:
