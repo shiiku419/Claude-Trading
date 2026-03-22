@@ -19,6 +19,9 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 import structlog
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -90,12 +93,14 @@ class Database:
         self._session_factory = None
         log.info("database.closed")
 
-    def session(self) -> AsyncSession:
-        """Return a new :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
+    @asynccontextmanager
+    async def session(self) -> AsyncGenerator[AsyncSession, None]:
+        """Yield a new :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
 
-        The caller must manage the session lifecycle with ``async with``.
+        Commits on clean exit and propagates exceptions to the caller so
+        they can roll back if needed.  Intended for use with ``async with``.
 
-        Returns:
+        Yields:
             A fresh :class:`AsyncSession` bound to the engine.
 
         Raises:
@@ -105,10 +110,12 @@ class Database:
 
             async with db.session() as sess:
                 sess.add(record)
-                await sess.commit()
+                # commit is called automatically on exit
         """
         if self._session_factory is None:
             raise RuntimeError(
                 "Database.init() must be called before creating sessions."
             )
-        return self._session_factory()
+        async with self._session_factory() as sess:
+            yield sess
+            await sess.commit()

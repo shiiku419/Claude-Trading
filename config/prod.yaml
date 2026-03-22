@@ -29,3 +29,15 @@ claude:
 database:
   url: "postgresql+asyncpg://user:postgres@db:5432/trading"
   redis_url: "redis://redis:6379/0"
+
+paper:
+  initial_balance: 10000.0
+  fill_model: next_bar_open
+  slippage_pct: 0.0005
+  fee_pct: 0.0005
+
+alerts:
+  rate_limit_seconds: 60.0
+
+monitoring:
+  health_check_interval_seconds: 30

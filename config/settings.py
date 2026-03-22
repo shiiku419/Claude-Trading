@@ -97,6 +97,8 @@ class ClaudeConfig(BaseSettings):
     """Anthropic Claude integration settings.
 
     Attributes:
+        api_key: Anthropic API key.  Populated from environment in production
+            so it is never committed to YAML (e.g. via ``CLAUDE__API_KEY``).
         model: Anthropic model identifier.
         calls_per_day: Maximum number of Claude API calls to make per
             calendar day.  Enforced by the rate-limiter in the regime
@@ -108,6 +110,7 @@ class ClaudeConfig(BaseSettings):
             regime detection.
     """
 
+    api_key: str = ""
     model: str = "claude-sonnet-4-5-20250929"
     calls_per_day: int = 4
     regime_ttl_hours: float = 12.0
@@ -138,11 +141,42 @@ class AlertConfig(BaseSettings):
         slack_webhook: Incoming-webhook URL for Slack notifications.
         telegram_bot_token: Bot token issued by @BotFather.
         telegram_chat_id: Target chat or channel ID for Telegram messages.
+        rate_limit_seconds: Minimum seconds between repeated alerts of the
+            same type to prevent notification flooding.
     """
 
     slack_webhook: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    rate_limit_seconds: float = 300.0
+
+
+class PaperConfig(BaseSettings):
+    """Paper-trading simulation parameters.
+
+    Attributes:
+        initial_balance: Starting quote-asset balance for the paper account.
+        fill_model: Fill model to use — ``"next_bar_open"`` (default,
+            avoids look-ahead bias) or ``"worst_case"``.
+        slippage_pct: Base slippage fraction applied to every fill.
+        fee_pct: Taker fee fraction applied to the filled notional value.
+    """
+
+    initial_balance: float = 10_000.0
+    fill_model: str = "next_bar_open"
+    slippage_pct: float = 0.001
+    fee_pct: float = 0.001
+
+
+class MonitoringConfig(BaseSettings):
+    """Health-monitoring configuration.
+
+    Attributes:
+        health_check_interval_seconds: Seconds between full health-check
+            passes.  Passed directly to :class:`~monitoring.healthcheck.HealthChecker`.
+    """
+
+    health_check_interval_seconds: int = 60
 
 
 class BusTopicConfig(BaseSettings):
@@ -199,6 +233,8 @@ class Settings(BaseSettings):
         database: Database and Redis connection strings.
         alerts: Outbound alert channel credentials.
         bus: Event-bus queue configuration.
+        paper: Paper-trading simulation parameters.
+        monitoring: Health-monitoring configuration.
     """
 
     model_config = {  # type: ignore[misc]
@@ -213,6 +249,8 @@ class Settings(BaseSettings):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     alerts: AlertConfig = Field(default_factory=AlertConfig)
     bus: BusConfig = Field(default_factory=BusConfig)
+    paper: PaperConfig = Field(default_factory=PaperConfig)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
 
     @classmethod
     def from_yaml(cls, path: str) -> Settings:

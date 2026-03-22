@@ -217,6 +217,38 @@ class FeatureStore:
 
         return result
 
+    def get_summary(self) -> dict[str, object]:
+        """Return a JSON-serialisable market-data summary for all tracked pairs.
+
+        Iterates over all buffered pair/timeframe keys and collects the most
+        recent OHLCV values.  Pairs/timeframes with no data yet are skipped.
+
+        Returns:
+            A dict with a ``"pairs"`` key mapping each ``"{pair}:{timeframe}"``
+            key to its latest close, volume, and candle count.  If no data is
+            available, the pairs value is ``{"status": "no_data_yet"}``.
+        """
+        summary: dict[str, object] = {"note": "MVP summary from in-memory ring buffers"}
+        pairs_data: dict[str, object] = {}
+
+        for key, buf in self._buffers.items():
+            count = self._buffer_counts.get(key, 0)
+            if count == 0:
+                continue
+
+            pos = self._buffer_positions[key]
+            last_idx = (pos - 1) % self._max_candles
+            last = buf[last_idx]
+
+            pairs_data[key] = {
+                "last_close": float(last["close"]),
+                "last_volume": float(last["volume"]),
+                "candles_available": count,
+            }
+
+        summary["pairs"] = pairs_data if pairs_data else {"status": "no_data_yet"}
+        return summary
+
     async def get_features(self, pair: str) -> dict[str, str] | None:
         """Read current scalar features for *pair* from Redis.
 

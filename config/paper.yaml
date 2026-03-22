@@ -29,3 +29,15 @@ claude:
 database:
   url: "sqlite+aiosqlite:///trading.db"
   redis_url: "redis://localhost:6379/0"
+
+paper:
+  initial_balance: 10000.0
+  fill_model: next_bar_open
+  slippage_pct: 0.001
+  fee_pct: 0.001
+
+alerts:
+  rate_limit_seconds: 300.0
+
+monitoring:
+  health_check_interval_seconds: 60

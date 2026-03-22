@@ -143,7 +143,8 @@ class TestDatabase:
         """Calling session() before init() must raise RuntimeError."""
         db = _make_db()
         with pytest.raises(RuntimeError, match="init"):
-            db.session()
+            async with db.session():
+                pass
 
     async def test_session_works_after_init(self) -> None:
         """session() must return a working AsyncSession after init()."""

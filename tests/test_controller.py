@@ -469,10 +469,10 @@ def _make_regime_runner(
         regime_prompt_path="claude/prompts/regime.md",
     )
     feature_store = MagicMock(spec=FeatureStore)
-    feature_store._buffers = {}
-    feature_store._buffer_counts = {}
-    feature_store._buffer_positions = {}
-    feature_store._max_candles = 500
+    feature_store.get_summary.return_value = {
+        "note": "MVP summary from in-memory ring buffers",
+        "pairs": {"status": "no_data_yet"},
+    }
 
     controller = MagicMock(spec=StrategyController)
     controller.update_regime = AsyncMock(return_value=MODES[Regime.TRENDING_UP])

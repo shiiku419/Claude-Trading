@@ -201,33 +201,13 @@ class RegimeRunner:
     def _build_market_summary(self) -> dict[str, object]:
         """Aggregate market data from the feature store for prompt context.
 
-        Iterates over all tracked pair/timeframe buffers and collects the
-        most recent OHLCV values.  If the store is empty a minimal
-        placeholder dict is returned so the prompt is still valid.
+        Delegates to :meth:`~data.feature_store.FeatureStore.get_summary` so
+        that this class does not depend on private feature-store attributes.
 
         Returns:
             A JSON-serialisable dict suitable for embedding in the prompt.
         """
-        summary: dict[str, object] = {"note": "MVP summary from in-memory ring buffers"}
-        pairs_data: dict[str, object] = {}
-
-        for key, buf in self._feature_store._buffers.items():
-            count = self._feature_store._buffer_counts.get(key, 0)
-            if count == 0:
-                continue
-
-            pos = self._feature_store._buffer_positions[key]
-            last_idx = (pos - 1) % self._feature_store._max_candles
-            last = buf[last_idx]
-
-            pairs_data[key] = {
-                "last_close": float(last["close"]),
-                "last_volume": float(last["volume"]),
-                "candles_available": count,
-            }
-
-        summary["pairs"] = pairs_data if pairs_data else {"status": "no_data_yet"}
-        return summary
+        return self._feature_store.get_summary()
 
     # ------------------------------------------------------------------
     # Internal helpers

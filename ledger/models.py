@@ -11,9 +11,7 @@ application crashes and retries, a duplicate row can never be inserted.
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from sqlalchemy import BigInteger, DateTime, Float, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -67,7 +65,7 @@ class SignalRecord(Base):
     __tablename__ = "signals"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[str] = mapped_column(DateTime, server_default=func.now())
     pair: Mapped[str] = mapped_column(String(20), index=True)
     direction: Mapped[str] = mapped_column(String(10))
     strength: Mapped[float] = mapped_column(Float)
@@ -94,7 +92,7 @@ class RiskDecisionRecord(Base):
     __tablename__ = "risk_decisions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[str] = mapped_column(DateTime, server_default=func.now())
     signal_id: Mapped[int] = mapped_column(Integer, index=True)
     approved: Mapped[bool]
     reason: Mapped[str] = mapped_column(String(500))
@@ -134,9 +132,9 @@ class OrderRecord(Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    created_at: Mapped[str] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[str] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )
     client_order_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     exchange_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -169,7 +167,7 @@ class RegimeRecord(Base):
     __tablename__ = "regimes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[str] = mapped_column(DateTime, server_default=func.now())
     regime: Mapped[str] = mapped_column(String(50))
     confidence: Mapped[float] = mapped_column(Float)
     raw_response: Mapped[str] = mapped_column(Text, default="")
