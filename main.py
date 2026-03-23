@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
+import time
 from typing import Any
 
 import structlog
@@ -252,6 +253,21 @@ async def main(config_path: str) -> None:
     tca_analyzer: TCAAnalyzer = TCAAnalyzer()
     slo_tracker: SLOTracker = SLOTracker()
 
+    # Wire SLO tracker into market feed connect/disconnect callbacks.
+    _orig_on_connect = market_feed._on_connect
+    _orig_on_disconnect = market_feed._on_disconnect
+
+    async def _slo_on_connect() -> None:
+        slo_tracker.record_ws_connected()
+        await _orig_on_connect()
+
+    async def _slo_on_disconnect(disconnect_ts: float, reconnect_ts: float) -> None:
+        slo_tracker.record_ws_disconnected()
+        await _orig_on_disconnect(disconnect_ts, reconnect_ts)
+
+    market_feed._on_connect = _slo_on_connect
+    market_feed._on_disconnect = _slo_on_disconnect
+
     # ------------------------------------------------------------------ #
     # Dashboard                                                           #
     # ------------------------------------------------------------------ #
@@ -407,6 +423,7 @@ async def main(config_path: str) -> None:
 
                 # Build portfolio state from executor.
                 current_price = float(candles[-1]["close"])
+                pnl_tracker.update_market_price(pair, current_price)
                 positions = executor.positions
                 open_position_values = {
                     p: qty * current_price for p, qty in positions.items()
@@ -470,6 +487,10 @@ async def main(config_path: str) -> None:
                             "status": result.status,
                             "client_order_id": result.client_order_id,
                         })
+                    # Record order latency for SLO
+                    latency = time.time() - approved.approved_at
+                    slo_tracker.record_order_latency(latency)
+
                     if result.filled_quantity > 0:
                         pnl_tracker.record_trade(
                             pair=pair,
@@ -494,6 +515,23 @@ async def main(config_path: str) -> None:
     # Concurrent tasks                                                    #
     # ------------------------------------------------------------------ #
 
+    async def _midnight_reset_loop() -> None:
+        """Reset daily PnL trackers at UTC midnight."""
+        from datetime import UTC, datetime, timedelta
+
+        while not stop_event.is_set():
+            now = datetime.now(UTC)
+            tomorrow = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=5, microsecond=0,
+            )
+            secs = (tomorrow - now).total_seconds()
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=secs)
+                break  # stop_event was set
+            except TimeoutError:
+                pnl_tracker.reset_daily()
+                log.info("trackers.daily_reset")
+
     async def _shutdown_watcher(tg: asyncio.TaskGroup) -> None:
         """Wait for the stop event then cancel the task group."""
         await stop_event.wait()
@@ -514,6 +552,7 @@ async def main(config_path: str) -> None:
             tg.create_task(health_checker.run_periodic(), name="health_checker")
             tg.create_task(recovery_worker.run_periodic(), name="recovery_worker")
             tg.create_task(signal_loop(), name="signal_loop")
+            tg.create_task(_midnight_reset_loop(), name="midnight_reset")
             if dashboard_server is not None:
                 tg.create_task(dashboard_server.serve(), name="dashboard")
             tg.create_task(_shutdown_watcher(tg), name="shutdown_watcher")
