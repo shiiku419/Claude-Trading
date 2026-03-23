@@ -12,24 +12,23 @@ WORKDIR /app
 # Docker's layer cache is reused when application code changes but deps don't.
 COPY pyproject.toml uv.lock ./
 
-# Install production dependencies into /app/.venv; skip editable installs and
-# dev extras so the venv stays small.
-RUN uv sync --frozen --no-dev --no-editable
+# Export requirements from uv.lock then install with system Python into /usr/local
+# This avoids venv symlink issues when building on macOS for Linux containers
+RUN uv export --frozen --no-dev > requirements.txt && \
+    uv pip install --system -r requirements.txt
 
 # ---------------------------------------------------------------------------
 # Stage 2: lean runtime image
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim-bookworm
 
-# Bring across the pre-built virtualenv from the builder stage.
-COPY --from=builder /app/.venv /app/.venv
-
-# Prepend the venv's bin directory so every python/pip invocation uses it.
-ENV PATH="/app/.venv/bin:$PATH"
+# Copy installed packages from builder stage
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 WORKDIR /app
 
-# Copy application source after the venv layer so code changes don't
+# Copy application source after the dependency layer so code changes don't
 # invalidate the dependency cache.
 COPY . .
 

@@ -187,8 +187,11 @@ async def main(config_path: str) -> None:
     # ------------------------------------------------------------------ #
     # Risk gate                                                           #
     # ------------------------------------------------------------------ #
+    kill_switch: KillSwitch = KillSwitch(redis_url=settings.database.redis_url)
+    await kill_switch.connect()
+
     risk_gate: RiskGate = RiskGate(
-        kill_switch=KillSwitch(redis_url=settings.database.redis_url),
+        kill_switch=kill_switch,
         time_policy=TimePolicyCheck(),
         daily_loss=DailyLossCheck(
             warning_pct=settings.risk.daily_loss_warning_pct,
@@ -578,6 +581,7 @@ async def main(config_path: str) -> None:
     await engine.close()
     await controller.close()
     await feature_store.close()
+    await kill_switch.close()
     log.info("trading_system.stopped")
 
 

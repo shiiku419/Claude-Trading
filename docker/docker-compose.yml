@@ -5,9 +5,9 @@ name: trading-system
 # anchor.  Override via a .env file or shell environment before running.
 # ---------------------------------------------------------------------------
 x-trading-env: &trading-env
-  DATABASE_URL: "postgresql+asyncpg://trader:postgres@db:5432/trading"
-  REDIS_URL: "redis://redis:6379/0"
-  TRADING_MODE: "paper"
+  DATABASE__URL: "postgresql+asyncpg://trader:postgres@db:5432/trading"
+  DATABASE__REDIS_URL: "redis://redis:6379/0"
+  TRADING__MODE: "paper"
   ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
 
 services:
@@ -20,6 +20,7 @@ services:
       dockerfile: docker/Dockerfile
     environment:
       <<: *trading-env
+      DASHBOARD__HOST: "0.0.0.0"
     volumes:
       # Mount config read-only so operators can adjust settings without
       # rebuilding the image.
@@ -29,6 +30,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    ports:
+      # Expose dashboard to localhost for monitoring
+      - "8080:8080"
     healthcheck:
       # Verify Redis connectivity from inside the bot container.
       test:

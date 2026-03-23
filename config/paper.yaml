@@ -1,6 +1,6 @@
 exchange:
   name: binance
-  testnet: true
+  testnet: false  # Using mainnet data for paper trading (no real orders)
 
 trading:
   pairs:

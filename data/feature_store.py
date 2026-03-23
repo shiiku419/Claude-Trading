@@ -146,7 +146,7 @@ class FeatureStore:
         if self._buffer_counts[key] < self._max_candles:
             self._buffer_counts[key] += 1
 
-        log.debug(
+        log.info(
             "feature_store.updated",
             key=key,
             pos=pos,

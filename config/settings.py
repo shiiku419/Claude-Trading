@@ -13,11 +13,11 @@ Typical usage::
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Tuple
 
 import yaml
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bus.events import TOPIC_CONFIGS
 
@@ -232,6 +232,27 @@ class BusConfig(BaseSettings):
 # ---------------------------------------------------------------------------
 
 
+class YamlSettingsSource(PydanticBaseSettingsSource):
+    """Custom settings source that reads from a YAML file with lower priority than env vars."""
+    
+    def __init__(self, settings_cls: type[BaseSettings], yaml_file: str | None = None):
+        super().__init__(settings_cls)
+        self.yaml_file = yaml_file
+        self._data: dict[str, Any] = {}
+        if yaml_file:
+            with open(yaml_file) as fh:
+                self._data = yaml.safe_load(fh) or {}
+    
+    def get_field_value(self, field: Any, field_name: str) -> Tuple[Any, str, bool]:
+        """Return the value for a field from YAML data."""
+        if field_name in self._data:
+            return self._data[field_name], field_name, False
+        return None, field_name, False
+    
+    def __call__(self) -> dict[str, Any]:
+        return self._data
+
+
 class Settings(BaseSettings):
     """Root configuration object for the trading system.
 
@@ -254,6 +275,7 @@ class Settings(BaseSettings):
     model_config = {  # type: ignore[misc]
         "env_prefix": "",
         "env_nested_delimiter": "__",
+        "extra": "ignore",
     }
 
     exchange: ExchangeConfig = Field(default_factory=ExchangeConfig)
@@ -267,25 +289,49 @@ class Settings(BaseSettings):
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
 
+    _yaml_file: str | None = None
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        """Customize the priority order of settings sources.
+        
+        Priority (highest first):
+        1. init_settings (explicit constructor args)
+        2. env_settings (environment variables) 
+        3. yaml_settings (YAML file) - custom source
+        4. default values
+        """
+        yaml_settings = YamlSettingsSource(settings_cls, getattr(cls, "_yaml_file", None))
+        return (init_settings, env_settings, yaml_settings)
+
     @classmethod
     def from_yaml(cls, path: str) -> Settings:
         """Construct a ``Settings`` instance from a YAML file.
 
-        The YAML structure must mirror the nested model hierarchy.  After
-        loading, environment variables are still applied on top via the
-        normal Pydantic Settings resolution order.
+        Environment variables override YAML values (env vars take precedence).
 
         Args:
             path: Filesystem path to the YAML configuration file.
 
         Returns:
-            A fully validated ``Settings`` instance.
+            A fully validated ``Settings`` instance with YAML as base and env vars as overrides.
 
         Raises:
             FileNotFoundError: If *path* does not exist.
             yaml.YAMLError: If the file cannot be parsed.
             pydantic.ValidationError: If the YAML contents fail validation.
         """
-        with open(path) as fh:
-            data: dict[str, Any] = yaml.safe_load(fh) or {}
-        return cls(**data)
+        # Set the YAML file path as a class attribute so settings_customise_sources can access it
+        cls._yaml_file = path
+        try:
+            # Instantiate normally - our custom settings_customise_sources will handle priority
+            return cls()
+        finally:
+            cls._yaml_file = None

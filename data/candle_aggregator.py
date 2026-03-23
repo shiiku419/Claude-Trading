@@ -135,10 +135,13 @@ class CandleAggregator:
             except asyncio.CancelledError:
                 break
 
+            log.info("candle_aggregator.received_event", pair=event.pair, timeframe=event.timeframe, is_closed=event.is_closed)
             if not event.is_closed:
                 # Skip in-progress candles to avoid partial data in the store.
+                log.debug("candle_aggregator.skipping_unclosed", pair=event.pair, timeframe=event.timeframe)
                 continue
 
+            log.info("candle_aggregator.processing_closed_candle", pair=event.pair, timeframe=event.timeframe)
             try:
                 await self._feature_store.update(
                     pair=event.pair,

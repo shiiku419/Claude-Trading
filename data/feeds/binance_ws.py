@@ -277,6 +277,7 @@ class BinanceKlineFeed:
         Args:
             raw: Raw JSON text received from the WebSocket.
         """
+        log.debug("binance_ws.raw_message_received", raw_len=len(raw))
         try:
             payload: dict[str, Any] = json.loads(raw)
         except json.JSONDecodeError:
@@ -284,7 +285,9 @@ class BinanceKlineFeed:
             return
 
         data = payload.get("data", {})
-        if data.get("e") != "kline":
+        event_type = data.get("e")
+        log.debug("binance_ws.message_parsed", event_type=event_type)
+        if event_type != "kline":
             # Not a kline event (e.g. subscription confirmation)
             return
 
@@ -306,6 +309,7 @@ class BinanceKlineFeed:
             log.warning("binance_ws.malformed_kline", kline=kline, exc_info=True)
             return
 
+        log.info("binance_ws.candle_event", pair=event.pair, timeframe=event.timeframe, is_closed=event.is_closed)
         await self._event_bus.publish("candle", event)
 
     async def _backfill_gaps(
