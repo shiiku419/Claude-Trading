@@ -179,6 +179,20 @@ class MonitoringConfig(BaseSettings):
     health_check_interval_seconds: int = 60
 
 
+class DashboardConfig(BaseSettings):
+    """Web dashboard configuration.
+
+    Attributes:
+        enabled: Start the dashboard HTTP server alongside the bot.
+        host: Bind address for uvicorn.
+        port: Listen port for the dashboard.
+    """
+
+    enabled: bool = True
+    host: str = "127.0.0.1"
+    port: int = 8080
+
+
 class BusTopicConfig(BaseSettings):
     """Per-topic queue parameters surfaced in the top-level Settings.
 
@@ -251,6 +265,7 @@ class Settings(BaseSettings):
     bus: BusConfig = Field(default_factory=BusConfig)
     paper: PaperConfig = Field(default_factory=PaperConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
 
     @classmethod
     def from_yaml(cls, path: str) -> Settings:

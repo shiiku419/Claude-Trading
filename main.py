@@ -30,7 +30,10 @@ from data.feeds.binance_ws import BinanceKlineFeed
 from execution.engine import ExecutionEngine
 from execution.paper_executor import PaperExecutor
 from execution.recovery import RecoveryWorker
+from ledger.pnl_tracker import PnLTracker
+from ledger.tca import TCAAnalyzer
 from monitoring.healthcheck import HealthChecker, HealthStatus
+from monitoring.slo import SLOTracker
 from risk.base import PortfolioState
 from risk.daily_loss import DailyLossCheck
 from risk.exposure import ExposureCheck
@@ -243,6 +246,52 @@ async def main(config_path: str) -> None:
     health_checker.register_check("market_feed", _check_market_feed)
 
     # ------------------------------------------------------------------ #
+    # PnL / TCA / SLO trackers                                           #
+    # ------------------------------------------------------------------ #
+    pnl_tracker: PnLTracker = PnLTracker()
+    tca_analyzer: TCAAnalyzer = TCAAnalyzer()
+    slo_tracker: SLOTracker = SLOTracker()
+
+    # ------------------------------------------------------------------ #
+    # Dashboard                                                           #
+    # ------------------------------------------------------------------ #
+    dashboard_server: Any = None
+    dashboard_state: Any = None
+
+    if settings.dashboard.enabled:
+        import uvicorn
+
+        from dashboard.app import DashboardState, create_app
+
+        dashboard_state = DashboardState(
+            feature_store=feature_store,
+            controller=controller,
+            executor=executor,
+            engine=engine,
+            risk_gate=risk_gate,
+            health_checker=health_checker,
+            market_feed=market_feed,
+            pnl_tracker=pnl_tracker,
+            tca_analyzer=tca_analyzer,
+            slo_tracker=slo_tracker,
+            settings=settings,
+        )
+        dashboard_app = create_app(dashboard_state)
+        dashboard_config = uvicorn.Config(
+            dashboard_app,
+            host=settings.dashboard.host,
+            port=settings.dashboard.port,
+            log_level="warning",
+        )
+        dashboard_server = uvicorn.Server(dashboard_config)
+        log.info(
+            "dashboard.enabled",
+            host=settings.dashboard.host,
+            port=settings.dashboard.port,
+            url=f"http://{settings.dashboard.host}:{settings.dashboard.port}",
+        )
+
+    # ------------------------------------------------------------------ #
     # Graceful-shutdown event                                             #
     # ------------------------------------------------------------------ #
     stop_event: asyncio.Event = asyncio.Event()
@@ -347,6 +396,15 @@ async def main(config_path: str) -> None:
                     indicator=signal_result.indicator_name,
                 )
 
+                # Record signal for dashboard
+                if dashboard_state is not None:
+                    dashboard_state.record_signal({
+                        "pair": pair,
+                        "direction": signal_result.direction,
+                        "strength": signal_result.strength,
+                        "indicator": signal_result.indicator_name,
+                    })
+
                 # Build portfolio state from executor.
                 current_price = float(candles[-1]["close"])
                 positions = executor.positions
@@ -402,6 +460,32 @@ async def main(config_path: str) -> None:
                         client_order_id=result.client_order_id,
                     )
 
+                    # Record order for dashboard + PnL tracking
+                    if dashboard_state is not None:
+                        dashboard_state.record_order({
+                            "pair": pair,
+                            "side": approved.side,
+                            "quantity": approved.quantity,
+                            "price": result.filled_price,
+                            "status": result.status,
+                            "client_order_id": result.client_order_id,
+                        })
+                    if result.filled_quantity > 0:
+                        pnl_tracker.record_trade(
+                            pair=pair,
+                            side=approved.side,
+                            quantity=result.filled_quantity,
+                            price=result.filled_price,
+                            fees=result.fees,
+                        )
+                        tca_analyzer.record_execution(
+                            expected_price=current_price,
+                            actual_price=result.filled_price,
+                            quantity=result.filled_quantity,
+                            fees=result.fees,
+                            side=approved.side,
+                        )
+
         finally:
             bus.unsubscribe("candle", candle_queue)  # type: ignore[arg-type]
             log.info("signal_loop.stopped")
@@ -430,6 +514,8 @@ async def main(config_path: str) -> None:
             tg.create_task(health_checker.run_periodic(), name="health_checker")
             tg.create_task(recovery_worker.run_periodic(), name="recovery_worker")
             tg.create_task(signal_loop(), name="signal_loop")
+            if dashboard_server is not None:
+                tg.create_task(dashboard_server.serve(), name="dashboard")
             tg.create_task(_shutdown_watcher(tg), name="shutdown_watcher")
 
     except* asyncio.CancelledError:

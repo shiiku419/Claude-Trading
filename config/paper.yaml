@@ -41,3 +41,8 @@ alerts:
 
 monitoring:
   health_check_interval_seconds: 60
+
+dashboard:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
